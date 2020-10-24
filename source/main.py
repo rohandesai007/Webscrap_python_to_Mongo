@@ -72,7 +72,7 @@ url_death = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/cs
             '/csse_covid_19_time_series/time_series_covid19_deaths_US.csv '
 url_confirmed = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data' \
                 '/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv '
-pattern = '.*/.*/.*'
+pattern = '10/20/.*'
 mongo_url = 'mongodb+srv://my_data:test@cluster0.9q8b8.mongodb.net/mydata?retryWrites=true&w=majority'
 
-load_case_data(url_confirmed, mongo_url, 'confirmed', pattern)
+load_case_data(url_death, mongo_url, 'confirmed_deaths', pattern)
