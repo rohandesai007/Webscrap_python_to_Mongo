@@ -1,11 +1,8 @@
-# This is a sample Python script.
-
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 import pymongo
 from pymongo import MongoClient
 import pandas as pd
 import re
+import datetime
 
 
 def print_hi(name: object) -> object:
@@ -26,6 +23,13 @@ class DataFormat:
         self.lon = lon
         self.date = date
         self.value = value
+
+
+def pass_date_param():
+    today_date = datetime.date.today()
+    yesterday_date = today_date - datetime.timedelta(days=1)
+    formatted_date = datetime.date.strftime(yesterday_date, "X%m/X%d/%y").replace('X0', 'X').replace('X', '')
+    return str(formatted_date)
 
 
 def get_data_in_url(url, pattern):
@@ -57,8 +61,10 @@ def get_mongo_collection(url, collection_name):
     db = client.mydata
     return db[collection_name]
 
-def insert_data_into_mongo (collection, data_objects):
+
+def insert_data_into_mongo(collection, data_objects):
     collection.insert_many(data_objects)
+
 
 def load_case_data(url, mongo_url, collection_name, pattern):
     data_objects = get_data_in_url(url, pattern)
@@ -72,7 +78,12 @@ url_death = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/cs
             '/csse_covid_19_time_series/time_series_covid19_deaths_US.csv '
 url_confirmed = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data' \
                 '/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv '
-pattern = '10/20/.*'
+pattern = '.*/.*/.*'
 mongo_url = 'mongodb+srv://my_data:test@cluster0.9q8b8.mongodb.net/mydata?retryWrites=true&w=majority'
 
-load_case_data(url_death, mongo_url, 'confirmed_deaths', pattern)
+# pattern = pass_date_param()
+# load_case_data(url_death, mongo_url, 'confirmed_deaths', pattern)
+# load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
+# load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
+
+
