@@ -1,9 +1,10 @@
 import pymongo
-from pymongo import MongoClient
+from mysql import connector
+from pymongo import MongoClient, collection
 import pandas as pd
 import re
 import datetime
-
+import mysql.connector
 
 def print_hi(name: object) -> object:
     # Use a breakpoint in the code line below to debug your script.
@@ -78,12 +79,12 @@ url_death = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/cs
             '/csse_covid_19_time_series/time_series_covid19_deaths_US.csv '
 url_confirmed = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data' \
                 '/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv '
-pattern = '.*/.*/.*'
+#pattern = '.*/.*/.*'
 mongo_url = 'mongodb+srv://my_data:test@cluster0.9q8b8.mongodb.net/mydata?retryWrites=true&w=majority'
 
-# pattern = pass_date_param()
-# load_case_data(url_death, mongo_url, 'confirmed_deaths', pattern)
+
+pattern = pass_date_param()
+load_case_data(url_death, mongo_url, 'confirmed_deaths', pattern)
 # load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
 # load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
-
 
