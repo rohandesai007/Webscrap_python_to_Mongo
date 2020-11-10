@@ -85,7 +85,8 @@ def Data_prep_for_ml(mongo_url):
     df_deathcases['date'] = pd.to_datetime(df_deathcases['date'])
     # df_deathcases['date'] = df_deathcases['date'].map(dt.datetime.toordinal)
     df1 = df_deathcases.groupby('date', as_index=False)['value'].sum().sort_values(by=['value'], ascending=False)
-    print(df1)
+    df1['values_diff'] = df1['value'] - df1['value'].shift(-1)
+    print(df1.head(30))
     return df1
 
 
