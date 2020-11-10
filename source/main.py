@@ -3,7 +3,7 @@ from mysql import connector
 from pymongo import MongoClient, collection
 import pandas as pd
 import re
-import datetime
+import datetime as dt
 import mysql.connector
 from pymongo.database import Database
 
@@ -73,16 +73,20 @@ def load_case_data(url, mongo_url, collection_name, pattern):
     data_objects = get_data_in_url(url, pattern)
     collection = get_mongo_collection(mongo_url, collection_name)
     insert_data_into_mongo(collection, data_objects)
-    linear_regression_model(mongo_url)
+    data_for_ml = Data_prep_for_ml(mongo_url)
 
 
-def linear_regression_model(mongo_url):
+def Data_prep_for_ml(mongo_url):
     client = MongoClient(mongo_url)
     db = client.mydata
     specified_collection = db["deaths_cases"]
-    mydata = specified_collection.find({}, {"province_state": 1, "date": 1, "value": 1})
+    mydata = specified_collection.find({}, {"date": 1, "value": 1})
     df_deathcases = pd.DataFrame.from_records(list(mydata))
-    print(df_deathcases)
+    df_deathcases['date'] = pd.to_datetime(df_deathcases['date'])
+    # df_deathcases['date'] = df_deathcases['date'].map(dt.datetime.toordinal)
+    df1 = df_deathcases.groupby('date', as_index=False)['value'].sum().sort_values(by=['value'], ascending=False)
+    print(df1)
+    return df1
 
 
 url_recovered = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data' \
@@ -94,8 +98,8 @@ url_confirmed = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/maste
 # pattern = '.*/.*/.*'
 mongo_url = 'mongodb+srv://my_data:test@cluster0.9q8b8.mongodb.net/mydata?retryWrites=true&w=majority'
 
-
-pattern = pass_date_param()
-load_case_data(url_death, mongo_url, 'deaths_cases', pattern)
-load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
-load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
+# pattern = pass_date_param()
+# load_case_data(url_death, mongo_url, 'deaths_cases', pattern)
+# load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
+# load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
+Data_prep_for_ml(mongo_url)
