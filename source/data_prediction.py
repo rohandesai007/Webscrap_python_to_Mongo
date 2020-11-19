@@ -1,13 +1,10 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import statsmodels
 from pymongo import MongoClient
-from statsmodels.sandbox.distributions.examples.ex_mvelliptical import fig
 from statsmodels.tsa.stattools import adfuller
 from source.connection_url import mongo_url
 from statsmodels.graphics.tsaplots import plot_acf
-from pandas.plotting import autocorrelation_plot
 
 
 def data_prep_death_cases(mongo_url):
@@ -22,16 +19,10 @@ def data_prep_death_cases(mongo_url):
     # df1.drop(df1.tail(7).index, inplace=True)
     groupby_data_df['value_diff'] = groupby_data_df['value'] - groupby_data_df['value'].shift(-1)
     groupby_data_df['value_diff'] = groupby_data_df['value_diff'].abs()  # fill null with 0 and take absolute value
-    plt.xlabel('Date')
-    plt.ylabel('Values')
-    plt.title("Death cases over Time vs Death Cases per Day")
-    plt.plot(groupby_data_df.value_diff, color='black')
-    plt.plot(groupby_data_df.value, color='blue')
-    plt.legend(loc="upper left")
-    plt.show()
     groupby_data_df = groupby_data_df.drop(columns=['value'])
     groupby_data_df = groupby_data_df.dropna()
     print(groupby_data_df.tail(30))
+    test_mpl(groupby_data_df)
     return groupby_data_df
 
 
@@ -47,8 +38,13 @@ def split_data_and_calc_mean_variance(df1):
     var1, var2, var3, var4, var5 = x1.var(), x2.var(), x3.var(), x4.var(), x5.var()
     print('\n')
     print('mean1=%.2f, mean2=%.2f, mean3=%.2f, mean4=%.2f' % (mean1, mean2, mean3, mean4))
-    print('\n')
     print('variance1=%.2f, variance2=%.2f, variance3=%.2f, variance4=%.2f\n' % (var1, var2, var3, var4))
+
+
+def test_mpl(data_for_dc):
+    data_ml = data_for_dc
+    plt.plot(data_ml)
+    plt.show()
 
 
 def death_over_time_day_wise(data_for_dc):
@@ -59,8 +55,7 @@ def death_over_time_day_wise(data_for_dc):
     plt.xlabel('Date')
     plt.ylabel('Values')
     plt.title("Death cases over Time - Day Wise")
-    plt.plot(data_ml, color='black')
-    plt.legend(loc="upper left")
+    plt.plot(data_ml)
     plt.show()
     # When the test statistic is lower than the critical value shown, you reject the null hypothesis and infer that the time series is stationary.
     diff_first = data_ml.diff()
@@ -76,10 +71,10 @@ def estimate_trend_log_of_original(var3):
     plt.ylabel('Values')
     plt.title("Log of Death cases over Time - moving Average and moving STD")
     index_dataset_log = np.log(df)
-    plt.plot(index_dataset_log, color='black')
+    plt.plot(index_dataset_log)
     moving_average = index_dataset_log.rolling(window=30).mean()
     moving_std = index_dataset_log.rolling(window=30).std()
-    plt.plot(moving_average, color='blue')
+    plt.plot(moving_average, color='orange')
     plt.plot(moving_std, color='red')
     plt.show()
     plot_acf_func_of_log(index_dataset_log)
@@ -95,13 +90,12 @@ def plot_acf_func_of_log(index_dataset_log):
 def first_order_estimate_trend(diff_first):
     print("In Estimate trend function \n")
     df = diff_first
+    print(df.tail(30))
     df = df[(df[['value_diff']] != 0).all(axis=1)]
     plt.xlabel('Date')
     plt.ylabel('Values')
     plt.title("Death cases over Time - First order")
-    # index_dataset_log = np.log(df)
     plt.plot(df)
-    plt.legend(loc="upper left")
     plt.show()
     return df
 
@@ -109,13 +103,12 @@ def first_order_estimate_trend(diff_first):
 def calculate_moving_average_first_order(df):
     moving_average = df.rolling(window=30).mean()
     moving_std = df.rolling(window=30).std()
-    plt.plot(moving_average)
+    plt.plot(moving_average, color='orange')
     plt.plot(moving_std, color='red')
-    plt.plot(df, color='black')
+    plt.plot(df)
     plt.xlabel('Date')
     plt.ylabel('Values')
     plt.title("First order Death cases over Time - moving Average and moving STD")
-    plt.legend(loc="upper left")
     plt.show()
 
 
@@ -125,16 +118,19 @@ def plot_acf_func_first_order(df):
     plt.show()
 
 
-def dickey_fuller_test_log(var2):
+def dickey_fuller_test_log(data_set_3):
     print("\n")
     print("Dickey Fuller Test for Log Data")
-    x = var2.values
+    x = data_set_3.dropna()
     result = adfuller(x)
     print('ADF Statistic: %f' % result[0])
     print('p-value: %f' % result[1])
     print('Critical Values:')
     for key, value in result[4].items():
         print('\t%s: %.3f' % (key, value))
+
+    # p - value <= 0.05: Reject the null hypothesis(H0), the data does not have
+    # a unit  root and is stationary.
 
 
 data_set_1 = data_prep_death_cases(mongo_url)
