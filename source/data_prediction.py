@@ -1,8 +1,13 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import statsmodels
 from pymongo import MongoClient
+from statsmodels.sandbox.distributions.examples.ex_mvelliptical import fig
 from statsmodels.tsa.stattools import adfuller
+from source.connection_url import mongo_url
+from statsmodels.graphics.tsaplots import plot_acf
+from pandas.plotting import autocorrelation_plot
 
 
 def data_prep_death_cases(mongo_url):
@@ -12,42 +17,119 @@ def data_prep_death_cases(mongo_url):
     mydata = specified_collection.find({}, {"date": 1, "value": 1})
     df_deathcases = pd.DataFrame.from_records(list(mydata))  # convert dict to list df
     df_deathcases['date'] = pd.to_datetime(df_deathcases['date'], format='%m/%d/%y')  # format date
-    df1 = df_deathcases.groupby('date', as_index=True)['value'].sum().reset_index().sort_values(by=['date'],
-                                                                                                ascending=True)
-    df1.drop(df1.tail(7).index, inplace=True)
-    df1['value_diff'] = df1['value'] - df1['value'].shift(-1)
-    df1['value_diff'] = df1['value_diff'].abs()  # fill null with 0 and take absolute value
-    df1 = df1.drop(columns=['value'])
-    print(df1.tail(30))
-    return df1
+    groupby_data_df = df_deathcases.groupby('date', as_index=True)['value'].sum().reset_index().sort_values(by=['date'],
+                                                                                                            ascending=True)
+    # df1.drop(df1.tail(7).index, inplace=True)
+    groupby_data_df['value_diff'] = groupby_data_df['value'] - groupby_data_df['value'].shift(-1)
+    groupby_data_df['value_diff'] = groupby_data_df['value_diff'].abs()  # fill null with 0 and take absolute value
+    plt.xlabel('Date')
+    plt.ylabel('Values')
+    plt.title("Death cases over Time vs Death Cases per Day")
+    plt.plot(groupby_data_df.value_diff, color='black')
+    plt.plot(groupby_data_df.value, color='blue')
+    plt.legend(loc="upper left")
+    plt.show()
+    groupby_data_df = groupby_data_df.drop(columns=['value'])
+    groupby_data_df = groupby_data_df.dropna()
+    print(groupby_data_df.tail(30))
+    return groupby_data_df
 
 
-def plot_death_over_time(data_for_dc):
-    # client = MongoClient(mongo_url)
-    # db = client.mydata
+def split_data_and_calc_mean_variance(df1):
+    x = df1['value_diff']
+    split = int(len(x) / 5)
+    x1 = x[0:split]
+    x2 = x[split:split * 2]
+    x3 = x[split * 2:split * 3]
+    x4 = x[split * 3:split * 4]
+    x5 = x[split * 4:]
+    mean1, mean2, mean3, mean4, mean5 = x1.mean(), x2.mean(), x3.mean(), x4.mean(), x5.mean()
+    var1, var2, var3, var4, var5 = x1.var(), x2.var(), x3.var(), x4.var(), x5.var()
+    print('\n')
+    print('mean1=%.2f, mean2=%.2f, mean3=%.2f, mean4=%.2f' % (mean1, mean2, mean3, mean4))
+    print('\n')
+    print('variance1=%.2f, variance2=%.2f, variance3=%.2f, variance4=%.2f\n' % (var1, var2, var3, var4))
+
+
+def death_over_time_day_wise(data_for_dc):
     data_ml = data_for_dc
     describe_data = data_ml.describe()
     print(describe_data)
     data_ml.set_index(['date'], inplace=True)
     plt.xlabel('Date')
     plt.ylabel('Values')
-    plt.title("Death cases over Time")
-    x = plt.plot(data_ml)
+    plt.title("Death cases over Time - Day Wise")
+    plt.plot(data_ml, color='black')
+    plt.legend(loc="upper left")
     plt.show()
-    # specified_collection1 = db["deaths_cases_stats"]
-    # specified_collection1.insert_many(describe_data)
-    # specified_collection2 = db["deaths_cases_over_time"]
-    # specified_collection2.insert_many(x)
-    print("will call dickey now")
-    dickey_fuller_test(data_ml)
-    estimate_trend(data_ml)
-    return data_ml
+    # When the test statistic is lower than the critical value shown, you reject the null hypothesis and infer that the time series is stationary.
+    diff_first = data_ml.diff()
+    estimate_trend_log_of_original(data_ml)
+    return diff_first
 
 
-def dickey_fuller_test(var2):
-    print("In Dickey function")
-    X = var2.values
-    result = adfuller(X)
+def estimate_trend_log_of_original(var3):
+    print("In Estimate trend function")
+    df = var3
+    df = df[(df[['value_diff']] != 0).all(axis=1)]
+    plt.xlabel('Date')
+    plt.ylabel('Values')
+    plt.title("Log of Death cases over Time - moving Average and moving STD")
+    index_dataset_log = np.log(df)
+    plt.plot(index_dataset_log, color='black')
+    moving_average = index_dataset_log.rolling(window=30).mean()
+    moving_std = index_dataset_log.rolling(window=30).std()
+    plt.plot(moving_average, color='blue')
+    plt.plot(moving_std, color='red')
+    plt.show()
+    plot_acf_func_of_log(index_dataset_log)
+    return index_dataset_log
+
+
+def plot_acf_func_of_log(index_dataset_log):
+    x = index_dataset_log
+    plot_acf(x[1:])
+    plt.show()
+
+
+def first_order_estimate_trend(diff_first):
+    print("In Estimate trend function \n")
+    df = diff_first
+    df = df[(df[['value_diff']] != 0).all(axis=1)]
+    plt.xlabel('Date')
+    plt.ylabel('Values')
+    plt.title("Death cases over Time - First order")
+    # index_dataset_log = np.log(df)
+    plt.plot(df)
+    plt.legend(loc="upper left")
+    plt.show()
+    return df
+
+
+def calculate_moving_average_first_order(df):
+    moving_average = df.rolling(window=30).mean()
+    moving_std = df.rolling(window=30).std()
+    plt.plot(moving_average)
+    plt.plot(moving_std, color='red')
+    plt.plot(df, color='black')
+    plt.xlabel('Date')
+    plt.ylabel('Values')
+    plt.title("First order Death cases over Time - moving Average and moving STD")
+    plt.legend(loc="upper left")
+    plt.show()
+
+
+def plot_acf_func_first_order(df):
+    x = df
+    plot_acf(x[1:])
+    plt.show()
+
+
+def dickey_fuller_test_log(var2):
+    print("\n")
+    print("Dickey Fuller Test for Log Data")
+    x = var2.values
+    result = adfuller(x)
     print('ADF Statistic: %f' % result[0])
     print('p-value: %f' % result[1])
     print('Critical Values:')
@@ -55,21 +137,11 @@ def dickey_fuller_test(var2):
         print('\t%s: %.3f' % (key, value))
 
 
-def estimate_trend(var3):
-    print("In Estimate trend function")
-    df = var3
-    df = df[(df[['value_diff']] != 0).all(axis=1)]
-    index_dataset_log = np.log(df)
-    plt.plot(index_dataset_log)
-    plt.show()
-    calculate_moving_average(index_dataset_log)
-    return df
-
-
-def calculate_moving_average(var4):
-    df = var4
-    moving_average = df.rolling(window=30).mean()
-    moving_std = df.rolling(window=30).std()
-    plt.plot(moving_average)
-    plt.plot(moving_std, color='red')
-    plt.show()
+data_set_1 = data_prep_death_cases(mongo_url)
+split_data_and_calc_mean_variance(data_set_1)
+data_set_2 = death_over_time_day_wise(data_set_1)
+# estimate_trend_log_of_original(data_set_2)
+data_set_3 = first_order_estimate_trend(data_set_2)
+calculate_moving_average_first_order(data_set_3)
+plot_acf_func_first_order(data_set_3)
+dickey_fuller_test_log(data_set_3)
