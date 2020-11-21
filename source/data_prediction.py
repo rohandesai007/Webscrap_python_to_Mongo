@@ -1,10 +1,15 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import pyplot
 from pymongo import MongoClient
+from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import adfuller
 from source.connection_url import mongo_url
-from statsmodels.graphics.tsaplots import plot_acf
+from statsmodels.graphics.tsaplots import acf, pacf, plot_acf, plot_pacf
+import statsmodels.api as sm
+from statsmodels.tsa.ar_model import AutoReg
+from random import random
 
 
 def data_prep_death_cases(mongo_url):
@@ -57,7 +62,6 @@ def death_over_time_day_wise(data_for_dc):
     plt.title("Death cases over Time - Day Wise")
     plt.plot(data_ml)
     plt.show()
-    # When the test statistic is lower than the critical value shown, you reject the null hypothesis and infer that the time series is stationary.
     diff_first = data_ml.diff()
     estimate_trend_log_of_original(data_ml)
     return diff_first
@@ -115,6 +119,14 @@ def calculate_moving_average_first_order(df):
 def plot_acf_func_first_order(df):
     x = df
     plot_acf(x[1:])
+    # plt.axhline(y=0, linestyle='--', color='grey')
+    plt.show()
+
+
+def plot_pacf_func_first_order(df):
+    x = df
+    plot_pacf(x[1:])
+    # plt.axhline(y=0, linestyle='--', color='grey')
     plt.show()
 
 
@@ -129,15 +141,35 @@ def dickey_fuller_test_log(data_set_3):
     for key, value in result[4].items():
         print('\t%s: %.3f' % (key, value))
 
-    # p - value <= 0.05: Reject the null hypothesis(H0), the data does not have
-    # a unit  root and is stationary.
+    # p - value <= 0.05: Reject the null hypothesis(H0), the data does not have a unit  root and is stationary. When
+    # the test statistic is lower than the critical value shown, you reject the null hypothesis and infer that the
+    # time series is stationary.
+
+
+def plot_ts_decomposition(data_set_3):
+    ts = data_set_3.dropna()
+    result = seasonal_decompose(ts, model='additive', period=7)
+    result.plot()
+
+
+def ar_model_ts(data_set_3):
+    # AR example
+    data = data_set_3.dropna()
+    # fit model
+    model = AutoReg(data, lags=30)
+    model_fit = model.fit()
+    # make prediction
+    yhat = model_fit.predict(len(data), len(data))
+    print(yhat)
 
 
 data_set_1 = data_prep_death_cases(mongo_url)
 split_data_and_calc_mean_variance(data_set_1)
 data_set_2 = death_over_time_day_wise(data_set_1)
-# estimate_trend_log_of_original(data_set_2)
 data_set_3 = first_order_estimate_trend(data_set_2)
 calculate_moving_average_first_order(data_set_3)
 plot_acf_func_first_order(data_set_3)
+plot_pacf_func_first_order(data_set_3)
 dickey_fuller_test_log(data_set_3)
+plot_ts_decomposition(data_set_3)
+ar_model_ts(data_set_3)
