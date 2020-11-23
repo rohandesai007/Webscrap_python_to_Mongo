@@ -10,6 +10,8 @@ from statsmodels.graphics.tsaplots import acf, pacf, plot_acf, plot_pacf
 import statsmodels.api as sm
 from statsmodels.tsa.ar_model import AutoReg
 from random import random
+from pandas.plotting import autocorrelation_plot
+import pmdarima as pm
 
 
 def data_prep_death_cases(mongo_url):
@@ -48,7 +50,7 @@ def split_data_and_calc_mean_variance(df1):
 
 def test_mpl(data_for_dc):
     data_ml = data_for_dc
-    plt.plot(data_ml)
+    plt.plot(data_ml['date'], data_ml['value_diff'])
     plt.show()
 
 
@@ -60,7 +62,8 @@ def death_over_time_day_wise(data_for_dc):
     plt.xlabel('Date')
     plt.ylabel('Values')
     plt.title("Death cases over Time - Day Wise")
-    plt.plot(data_ml)
+    plt.plot(data_ml, label='original Series')
+    plt.legend(loc='best')
     plt.show()
     diff_first = data_ml.diff()
     estimate_trend_log_of_original(data_ml)
@@ -78,8 +81,10 @@ def estimate_trend_log_of_original(var3):
     plt.plot(index_dataset_log)
     moving_average = index_dataset_log.rolling(window=30).mean()
     moving_std = index_dataset_log.rolling(window=30).std()
-    plt.plot(moving_average, color='orange')
-    plt.plot(moving_std, color='red')
+    plt.plot(moving_average, color='orange', label='Rolling Average')
+    plt.legend(loc='best')
+    plt.plot(moving_std, color='red', label='Rolling Standard Deviation')
+    plt.legend(loc='best')
     plt.show()
     plot_acf_func_of_log(index_dataset_log)
     return index_dataset_log
@@ -101,14 +106,17 @@ def first_order_estimate_trend(diff_first):
     plt.title("Death cases over Time - First order")
     plt.plot(df)
     plt.show()
+    df = df.dropna()
     return df
 
 
 def calculate_moving_average_first_order(df):
     moving_average = df.rolling(window=30).mean()
     moving_std = df.rolling(window=30).std()
-    plt.plot(moving_average, color='orange')
-    plt.plot(moving_std, color='red')
+    plt.plot(moving_average, color='orange', label='Rolling Average')
+    plt.legend(loc='best')
+    plt.plot(moving_std, color='red', label='Rolling Standard Deviation')
+    plt.legend(loc='best')
     plt.plot(df)
     plt.xlabel('Date')
     plt.ylabel('Values')
@@ -118,22 +126,21 @@ def calculate_moving_average_first_order(df):
 
 def plot_acf_func_first_order(df):
     x = df
-    plot_acf(x[1:])
-    # plt.axhline(y=0, linestyle='--', color='grey')
+    plot_acf(x[1:], lags=7)
+    plt.show()
     plt.show()
 
 
 def plot_pacf_func_first_order(df):
     x = df
-    plot_pacf(x[1:])
-    # plt.axhline(y=0, linestyle='--', color='grey')
+    plot_pacf(x[1:], lags=7)
     plt.show()
 
 
 def dickey_fuller_test_log(data_set_3):
     print("\n")
     print("Dickey Fuller Test for Log Data")
-    x = data_set_3.dropna()
+    x = data_set_3
     result = adfuller(x)
     print('ADF Statistic: %f' % result[0])
     print('p-value: %f' % result[1])
@@ -147,16 +154,35 @@ def dickey_fuller_test_log(data_set_3):
 
 
 def plot_ts_decomposition(data_set_3):
-    ts = data_set_3.dropna()
-    result = seasonal_decompose(ts, model='additive', period=7)
-    result.plot()
+    decomposition = seasonal_decompose(data_set_3, model='additive', period=7)
+
+    trend = decomposition.trend
+    seasonal = decomposition.seasonal
+
+    plt.subplot(411)
+    plt.plot(data_set_3, label='Original')
+    plt.legend(loc='best')
+
+    plt.subplot(412)
+    plt.plot(trend, label='Trend')
+    plt.legend(loc='best')
+
+    plt.subplot(413)
+    plt.plot(seasonal, label='Seasonality')
+    plt.legend(loc='best')
+
+    plt.tight_layout()
+
+    # there can be cases where an observation simply consisted of trend & seasonality. In that case, there won't be
+    # any residual component & that would be a null or NaN. Hence, we also remove such cases.
+
 
 
 def ar_model_ts(data_set_3):
     # AR example
     data = data_set_3.dropna()
     # fit model
-    model = AutoReg(data, lags=30)
+    model = AutoReg(data, lags=7)
     model_fit = model.fit()
     # make prediction
     yhat = model_fit.predict(len(data), len(data))
@@ -171,5 +197,5 @@ calculate_moving_average_first_order(data_set_3)
 plot_acf_func_first_order(data_set_3)
 plot_pacf_func_first_order(data_set_3)
 dickey_fuller_test_log(data_set_3)
-plot_ts_decomposition(data_set_3)
+plot_ts_decomposition(data_set_3) after TS
 ar_model_ts(data_set_3)
