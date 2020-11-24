@@ -1,17 +1,28 @@
+import warnings
+from os import cpu_count
+
+import mpmath
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from joblib import Parallel, delayed
 from matplotlib import pyplot
 from pymongo import MongoClient
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import adfuller
 from source.connection_url import mongo_url
 from statsmodels.graphics.tsaplots import acf, pacf, plot_acf, plot_pacf
 import statsmodels.api as sm
-from statsmodels.tsa.ar_model import AutoReg
+from statsmodels.tsa.arima_model import ARIMA
 from random import random
 from pandas.plotting import autocorrelation_plot
 import pmdarima as pm
+from statsmodels.tsa.stattools import acf, pacf
+from sklearn.model_selection import train_test_split
+import warnings
+warnings.filterwarnings("ignore")
+from sklearn.metrics import accuracy_score
 
 
 def data_prep_death_cases(mongo_url):
@@ -29,7 +40,7 @@ def data_prep_death_cases(mongo_url):
     groupby_data_df = groupby_data_df.drop(columns=['value'])
     groupby_data_df = groupby_data_df.dropna()
     print(groupby_data_df.tail(30))
-    test_mpl(groupby_data_df)
+    # test_mpl(groupby_data_df)
     return groupby_data_df
 
 
@@ -48,10 +59,10 @@ def split_data_and_calc_mean_variance(df1):
     print('variance1=%.2f, variance2=%.2f, variance3=%.2f, variance4=%.2f\n' % (var1, var2, var3, var4))
 
 
-def test_mpl(data_for_dc):
-    data_ml = data_for_dc
-    plt.plot(data_ml['date'], data_ml['value_diff'])
-    plt.show()
+# def test_mpl(data_for_dc):
+# data_ml = def test_mpdata_for_dc
+# plt.plot(data_ml['date'], data_ml['value_diff'])
+# plt.show()
 
 
 def death_over_time_day_wise(data_for_dc):
@@ -66,6 +77,7 @@ def death_over_time_day_wise(data_for_dc):
     plt.legend(loc='best')
     plt.show()
     diff_first = data_ml.diff()
+    # diff_first = diff_first.diff()
     estimate_trend_log_of_original(data_ml)
     return diff_first
 
@@ -126,15 +138,26 @@ def calculate_moving_average_first_order(df):
 
 def plot_acf_func_first_order(df):
     x = df
-    plot_acf(x[1:], lags=7)
     plt.show()
-    plt.show()
+    lag_acf = acf(x, nlags=7)
+    pyplot.plot(lag_acf)
+    pyplot.axhline(y=0, linestyle="--", color="gray")
+    pyplot.axhline(y=-1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
+    pyplot.axhline(y=1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
+    pyplot.title('Autocorrelation Function')
+    pyplot.show()
 
 
 def plot_pacf_func_first_order(df):
     x = df
-    plot_pacf(x[1:], lags=7)
     plt.show()
+    lag_acf = pacf(x, nlags=7)
+    pyplot.plot(lag_acf)
+    pyplot.axhline(y=0, linestyle="--", color="gray")
+    pyplot.axhline(y=-1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
+    pyplot.axhline(y=1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
+    pyplot.title('Partial Autocorrelation Function')
+    pyplot.show()
 
 
 def dickey_fuller_test_log(data_set_3):
@@ -155,38 +178,114 @@ def dickey_fuller_test_log(data_set_3):
 
 def plot_ts_decomposition(data_set_3):
     decomposition = seasonal_decompose(data_set_3, model='additive', period=7)
-
     trend = decomposition.trend
     seasonal = decomposition.seasonal
-
+    residual = decomposition.resid
     plt.subplot(411)
     plt.plot(data_set_3, label='Original')
     plt.legend(loc='best')
-
     plt.subplot(412)
     plt.plot(trend, label='Trend')
     plt.legend(loc='best')
-
     plt.subplot(413)
     plt.plot(seasonal, label='Seasonality')
     plt.legend(loc='best')
-
-    plt.tight_layout()
-
+    plt.subplot(414)
+    plt.plot(residual, label='Residuals')
+    plt.legend(loc='best')
+    plt.show()
+    # plt.tight_layout()
     # there can be cases where an observation simply consisted of trend & seasonality. In that case, there won't be
     # any residual component & that would be a null or NaN. Hence, we also remove such cases.
+    decomposedLogData = residual
+    decomposedLogData.dropna(inplace=True)
 
 
+def grid_search_sarima(data_set_3):
+    train_pct_index = int(0.9 * len(data_set_3))
+    train, test = data_set_3[:train_pct_index], data_set_3[
+                                                train_pct_index:]  # Define the p, d and q parameters to take any value between 0 and 2
 
-def ar_model_ts(data_set_3):
-    # AR example
-    data = data_set_3.dropna()
-    # fit model
-    model = AutoReg(data, lags=7)
-    model_fit = model.fit()
-    # make prediction
-    yhat = model_fit.predict(len(data), len(data))
-    print(yhat)
+    p_values = range(1, 6)
+    d_values = range(1, 2)
+    q_values = range(1, 6)
+    for p in p_values:
+        for d in d_values:
+            for q in q_values:
+                order = (p, d, q)
+                train, test = data_set_3[:train_pct_index], data_set_3[train_pct_index:]
+                predictions = []
+                for i in range(len(test)):
+                    try:
+                        model = ARIMA(train, order)
+                        model_fit = model.fit(disp=0)
+                        pred_y = model_fit.forecast()[0]
+                        predictions.append(pred_y)
+                        error = np.sqrt(mean_squared_error(test, predictions))
+                        print('Arima%s RMSE = %.2f' % (order, error))
+                    except:
+                        continue
+
+
+def arimamodel(data_set_3):
+    autoarima_model = pm.auto_arima(data_set_3,
+                                    start_p=1,
+                                    start_q=1,
+                                    test="adf",
+                                    trace=True)
+    return autoarima_model
+
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+
+def predict(data_set_3):
+    # split data into train and training set
+    train_data, test_data = data_set_3[3:int(len(data_set_3) * 0.9)], data_set_3[int(len(data_set_3) * 0.9):]
+    plt.figure(figsize=(10, 6))
+    plt.grid(True)
+    plt.xlabel('Dates')
+    plt.ylabel('Closing Prices')
+    plt.plot(data_set_3, 'green', label='Train data')
+    plt.plot(test_data, 'blue', label='Test data')
+    plt.legend()
+
+    # Modeling
+
+    # Build Model
+    model = ARIMA(train_data, order=(5, 1, 4))
+    fitted = model.fit(disp=-1)
+    print(fitted.summary())
+
+    # Forecast
+    fc, se, conf = fitted.forecast(26, alpha=0.05)  # 95% conf
+
+    # Make as pandas series
+    fc_series = pd.Series(fc, index=test_data.index)
+    lower_series = pd.Series(conf[:, 0], index=test_data.index)
+    upper_series = pd.Series(conf[:, 1], index=test_data.index)
+    # Plot
+    plt.figure(figsize=(10, 5), dpi=100)
+    plt.plot(train_data, label='training')
+    plt.plot(test_data, color='blue', label='Death Cases')
+    plt.plot(fc_series, color='orange', label='Predicted Death Cases')
+    plt.fill_between(lower_series.index, lower_series, upper_series,
+                     color='k', alpha=.10)
+    plt.title('Death cases Prediction')
+    plt.xlabel('Time')
+    plt.ylabel('Death Cases')
+    plt.legend(loc='upper left', fontsize=8)
+    plt.show()
+    # report performance
+    mse = mean_squared_error(test_data, fc)
+    print('MSE: ' + str(mse))
+    mae = mean_absolute_error(test_data, fc)
+    print('MAE: ' + str(mae))
+    rmse = mpmath.sqrt(mean_squared_error(test_data, fc))
+    print('RMSE: ' + str(rmse))
+    # Around 3.5% MAPE implies the model is about 96.5% accurate in predicting the next 15 observations.
 
 
 data_set_1 = data_prep_death_cases(mongo_url)
@@ -197,5 +296,8 @@ calculate_moving_average_first_order(data_set_3)
 plot_acf_func_first_order(data_set_3)
 plot_pacf_func_first_order(data_set_3)
 dickey_fuller_test_log(data_set_3)
-plot_ts_decomposition(data_set_3) after TS
-ar_model_ts(data_set_3)
+plot_ts_decomposition(data_set_3)
+#grid_search_sarima(data_set_3)
+#arima_model = arimamodel(data_set_1)
+#arima_model.summary()
+predict(data_set_3)
