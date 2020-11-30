@@ -1,28 +1,22 @@
 import warnings
-from os import cpu_count
 
-import mpmath
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
-from joblib import Parallel, delayed
+import mpmath
+import numpy as np
+import pandas as pd
+import pmdarima as pm
 from matplotlib import pyplot
 from pymongo import MongoClient
 from sklearn.metrics import mean_squared_error, mean_absolute_error
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.arima_model import ARIMA
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import adfuller
 from source.connection_url import mongo_url
-from statsmodels.graphics.tsaplots import acf, pacf, plot_acf, plot_pacf
-import statsmodels.api as sm
-from statsmodels.tsa.arima_model import ARIMA
-from random import random
-from pandas.plotting import autocorrelation_plot
-import pmdarima as pm
-from statsmodels.tsa.stattools import acf, pacf
-from sklearn.model_selection import train_test_split
-import warnings
+
 warnings.filterwarnings("ignore")
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, median_absolute_error, \
+    mean_squared_log_error
 
 
 def data_prep_death_cases(mongo_url):
@@ -36,6 +30,7 @@ def data_prep_death_cases(mongo_url):
                                                                                                             ascending=True)
     # df1.drop(df1.tail(7).index, inplace=True)
     groupby_data_df['value_diff'] = groupby_data_df['value'] - groupby_data_df['value'].shift(-1)
+    # groupby_data_df['value_diff'] = groupby_data_df['value']
     groupby_data_df['value_diff'] = groupby_data_df['value_diff'].abs()  # fill null with 0 and take absolute value
     groupby_data_df = groupby_data_df.drop(columns=['value'])
     groupby_data_df = groupby_data_df.dropna()
@@ -77,7 +72,6 @@ def death_over_time_day_wise(data_for_dc):
     plt.legend(loc='best')
     plt.show()
     diff_first = data_ml.diff()
-    # diff_first = diff_first.diff()
     estimate_trend_log_of_original(data_ml)
     return diff_first
 
@@ -138,26 +132,16 @@ def calculate_moving_average_first_order(df):
 
 def plot_acf_func_first_order(df):
     x = df
+    plot_acf(x[1:], lags=20)
+    plt.title('Autocorrelation Function')
     plt.show()
-    lag_acf = acf(x, nlags=7)
-    pyplot.plot(lag_acf)
-    pyplot.axhline(y=0, linestyle="--", color="gray")
-    pyplot.axhline(y=-1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
-    pyplot.axhline(y=1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
-    pyplot.title('Autocorrelation Function')
-    pyplot.show()
 
 
 def plot_pacf_func_first_order(df):
     x = df
+    plot_pacf(x[1:], lags=20)
     plt.show()
-    lag_acf = pacf(x, nlags=7)
-    pyplot.plot(lag_acf)
-    pyplot.axhline(y=0, linestyle="--", color="gray")
-    pyplot.axhline(y=-1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
-    pyplot.axhline(y=1.96 / np.sqrt(len(x)), linestyle="--", color="gray")
-    pyplot.title('Partial Autocorrelation Function')
-    pyplot.show()
+    pyplot.title('Partial Auto-correlation Function')
 
 
 def dickey_fuller_test_log(data_set_3):
@@ -207,7 +191,7 @@ def grid_search_sarima(data_set_3):
                                                 train_pct_index:]  # Define the p, d and q parameters to take any value between 0 and 2
 
     p_values = range(1, 6)
-    d_values = range(1, 2)
+    d_values = range(0, 3)
     q_values = range(1, 6)
     for p in p_values:
         for d in d_values:
@@ -236,6 +220,47 @@ def arimamodel(data_set_3):
     return autoarima_model
 
 
+def sarimamodel(data_set_3):
+    train_data, test_data = data_set_3[:int(0.75 * (len(data_set_3)))], data_set_3[int(0.75 * (len(data_set_3))):]
+    sautoarima_model = pm.auto_arima(train_data, trace=True, error_action='ignore',
+                                     start_p=0, start_q=0, max_p=6, max_q=6, m=7,
+                                     suppress_warnings=True, stepwise=True, seasonal=True)
+    print(sautoarima_model.summary())
+    sautoarima_model.fit(train_data)
+    sautoarima_model.plot_diagnostics()
+    plt.show()
+    start_index = test_data.index.min()
+    end_index = test_data.index.max()
+
+    # Predictions
+    pred = sautoarima_model.predict()
+    pred = sautoarima_model.predict(n_periods=len(test_data))
+    pred = pd.DataFrame(pred, index=test_data.index, columns=['Prediction'])
+
+    forecast = sautoarima_model.predict(n_periods=len(test_data))
+    forecast = pd.DataFrame(forecast, index=test_data.index, columns=['Prediction'])
+
+    # plot the predictions for validation set
+    plt.plot(data_set_3, label='Train')
+    # plt.plot(valid, label='Valid')
+    plt.plot(forecast, label='Prediction')
+    plt.show()
+    evaluate_forecast(data_set_3[start_index:end_index], forecast)
+    return sautoarima_model
+
+
+def evaluate_forecast(y,pred):
+    results = pd.DataFrame({'r2_score':r2_score(y, pred),
+                           }, index=[0])
+    results['mean_absolute_error'] = mean_absolute_error(y, pred)
+    results['median_absolute_error'] = median_absolute_error(y, pred)
+    results['mse'] = mean_squared_error(y, pred)
+    results['msle'] = mean_squared_log_error(y, pred)
+    results['mape'] = mean_absolute_percentage_error(y, pred)
+    results['rmse'] = np.sqrt(results['mse'])
+    return results
+
+
 def mean_absolute_percentage_error(y_true, y_pred):
     y_true, y_pred = np.array(y_true), np.array(y_pred)
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
@@ -243,17 +268,16 @@ def mean_absolute_percentage_error(y_true, y_pred):
 
 def predict(data_set_3):
     # split data into train and training set
-    train_data, test_data = data_set_3[3:int(len(data_set_3) * 0.9)], data_set_3[int(len(data_set_3) * 0.9):]
+    # train_data, test_data = data_set_3[3:int(len(data_set_3) * 0.9)], data_set_3[int(len(data_set_3) * 0.9):]
+    train_data, test_data = data_set_3[:int(0.75 * (len(data_set_3)))], data_set_3[int(0.75 * (len(data_set_3))):]
+
     plt.figure(figsize=(10, 6))
     plt.grid(True)
     plt.xlabel('Dates')
-    plt.ylabel('Closing Prices')
+    plt.ylabel('Death cases')
     plt.plot(data_set_3, 'green', label='Train data')
     plt.plot(test_data, 'blue', label='Test data')
     plt.legend()
-
-    # Modeling
-
     # Build Model
     model = ARIMA(train_data, order=(5, 1, 4))
     fitted = model.fit(disp=-1)
@@ -297,7 +321,8 @@ plot_acf_func_first_order(data_set_3)
 plot_pacf_func_first_order(data_set_3)
 dickey_fuller_test_log(data_set_3)
 plot_ts_decomposition(data_set_3)
-#grid_search_sarima(data_set_3)
-#arima_model = arimamodel(data_set_1)
-#arima_model.summary()
+# grid_search_sarima(data_set_3)
+# arima_model = arimamodel(data_set_1)
+# arima_model.summary()
+sarimamodel(data_set_3)
 predict(data_set_3)

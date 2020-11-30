@@ -13,7 +13,7 @@ def pass_date_param():
 
 
 pattern = pass_date_param()
-# load_case_data(url_death, mongo_url, 'deaths_cases', pattern)
-# load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
-# load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
+#load_case_data(url_death, mongo_url, 'deaths_cases', pattern)
+#load_case_data(url_confirmed, mongo_url, 'confirmed_cases', pattern)
+#load_case_data(url_recovered, mongo_url, 'recovered_cases', pattern)
 data_for_dc = data_prep_death_cases(mongo_url)
