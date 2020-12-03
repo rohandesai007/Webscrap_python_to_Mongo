@@ -1,18 +1,23 @@
 import warnings
-
 import matplotlib.pyplot as plt
 import mpmath
 import numpy as np
 import pandas as pd
 import pmdarima as pm
 from matplotlib import pyplot
+from pandas import DataFrame
+from pmdarima import auto_arima
 from pymongo import MongoClient
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
-from statsmodels.tsa.arima_model import ARIMA
+from statsmodels.tsa.arima_model import ARIMA, ARMA
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 from source.connection_url import mongo_url
+import statsmodels.api as sm
+import itertools
 
 warnings.filterwarnings("ignore")
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error, median_absolute_error, \
@@ -52,12 +57,6 @@ def split_data_and_calc_mean_variance(df1):
     print('\n')
     print('mean1=%.2f, mean2=%.2f, mean3=%.2f, mean4=%.2f' % (mean1, mean2, mean3, mean4))
     print('variance1=%.2f, variance2=%.2f, variance3=%.2f, variance4=%.2f\n' % (var1, var2, var3, var4))
-
-
-# def test_mpl(data_for_dc):
-# data_ml = def test_mpdata_for_dc
-# plt.plot(data_ml['date'], data_ml['value_diff'])
-# plt.show()
 
 
 def death_over_time_day_wise(data_for_dc):
@@ -116,6 +115,25 @@ def first_order_estimate_trend(diff_first):
     return df
 
 
+def evaluate_forecast(y, pred):
+    results = pd.DataFrame({'r2_score': r2_score(y, pred),
+                            }, index=[0])
+    results['mean_absolute_error'] = mean_absolute_error(y, pred)
+    results['median_absolute_error'] = median_absolute_error(y, pred)
+    results['mse'] = mean_squared_error(y, pred)
+    # results['msle'] = mean_squared_log_error(y, pred)
+    results['mape'] = mean_absolute_percentage_error(y, pred)
+    results['rmse'] = np.sqrt(results['mse'])
+    pd.set_option('display.max_columns', None)
+    print(results)
+    return results['mse']
+
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    y_true, y_pred = np.array(y_true), np.array(y_pred)
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+
 def calculate_moving_average_first_order(df):
     moving_average = df.rolling(window=30).mean()
     moving_std = df.rolling(window=30).std()
@@ -165,6 +183,7 @@ def plot_ts_decomposition(data_set_3):
     trend = decomposition.trend
     seasonal = decomposition.seasonal
     residual = decomposition.resid
+    plt.title("STL Decomposition")
     plt.subplot(411)
     plt.plot(data_set_3, label='Original')
     plt.legend(loc='best')
@@ -178,21 +197,47 @@ def plot_ts_decomposition(data_set_3):
     plt.plot(residual, label='Residuals')
     plt.legend(loc='best')
     plt.show()
-    # plt.tight_layout()
-    # there can be cases where an observation simply consisted of trend & seasonality. In that case, there won't be
-    # any residual component & that would be a null or NaN. Hence, we also remove such cases.
-    decomposedLogData = residual
-    decomposedLogData.dropna(inplace=True)
 
 
-def grid_search_sarima(data_set_3):
+def holtswinter(data_set_3):
+    train_data, test_data = data_set_3[:int(0.75 * (len(data_set_3)))], data_set_3[int(0.75 * (len(data_set_3))):]
+    y_hat_avg = test_data.copy()
+    fit1 = ExponentialSmoothing(np.array(train_data), seasonal_periods=7, trend='add', seasonal='add', ).fit()
+    y_hat_avg['Holt_Winter'] = fit1.forecast(len(test_data))
+    plt.figure(figsize=(16, 8))
+    plt.plot(train_data, label='Train')
+    plt.plot(test_data, label='Test')
+    plt.title("Holt's Winter model Prediction")
+    plt.plot(y_hat_avg['Holt_Winter'], label='Holt_Winter')
+    plt.legend(loc='best')
+    plt.show()
+    evaluate_forecast(test_data, y_hat_avg.Holt_Winter)
+
+
+def seasonal_difference(data_set_3):
+    df = data_set_3
+    df['Seasonal First Difference'] = df['value_diff'] - df['value_diff'].shift(7)
+    dickey_fuller_test_log(df['Seasonal First Difference'].dropna())
+    plt.plot(df['Seasonal First Difference'], label='Seasonal First Difference')
+    plt.legend(loc='best')
+    plt.show()
+    fig = plt.figure(figsize=(12, 8))
+    ax1 = fig.add_subplot(211)
+    fig = sm.graphics.tsa.plot_acf(df['Seasonal First Difference'].iloc[7:], lags=20, ax=ax1)
+    ax2 = fig.add_subplot(212)
+    fig = sm.graphics.tsa.plot_pacf(df['Seasonal First Difference'].iloc[7:], lags=20, ax=ax2)
+    plt.show()
+    df = df.drop('value_diff', 1)
+    return df
+
+
+def arima_model(data_set_3):
     train_pct_index = int(0.9 * len(data_set_3))
-    train, test = data_set_3[:train_pct_index], data_set_3[
-                                                train_pct_index:]  # Define the p, d and q parameters to take any value between 0 and 2
-
-    p_values = range(1, 6)
-    d_values = range(0, 3)
-    q_values = range(1, 6)
+    train, test = data_set_3[:train_pct_index], data_set_3[train_pct_index:]
+    # Define the p, d and q parameters to take any value between 0 and 2
+    p_values = range(0, 6)
+    d_values = range(2, 3)
+    q_values = range(0, 6)
     for p in p_values:
         for d in d_values:
             for q in q_values:
@@ -206,71 +251,28 @@ def grid_search_sarima(data_set_3):
                         pred_y = model_fit.forecast()[0]
                         predictions.append(pred_y)
                         error = np.sqrt(mean_squared_error(test, predictions))
-                        print('Arima%s RMSE = %.2f' % (order, error))
+                        print('ARIMA{} - AIC:{} - RMSE:{}'.format(order, model_fit.aic, error))
                     except:
                         continue
 
 
 def arimamodel(data_set_3):
+    train_pct_index = int(0.9 * len(data_set_3))
+    train, test = data_set_3[:train_pct_index], data_set_3[train_pct_index:]
+
+
+def arimamodel1(data_set_3):
     autoarima_model = pm.auto_arima(data_set_3,
                                     start_p=1,
                                     start_q=1,
-                                    test="adf",
+                                    d=1,
                                     trace=True)
     return autoarima_model
 
 
-def sarimamodel(data_set_3):
-    train_data, test_data = data_set_3[:int(0.75 * (len(data_set_3)))], data_set_3[int(0.75 * (len(data_set_3))):]
-    sautoarima_model = pm.auto_arima(train_data, trace=True, error_action='ignore',
-                                     start_p=0, start_q=0, max_p=6, max_q=6, m=7,
-                                     suppress_warnings=True, stepwise=True, seasonal=True)
-    print(sautoarima_model.summary())
-    sautoarima_model.fit(train_data)
-    sautoarima_model.plot_diagnostics()
-    plt.show()
-    start_index = test_data.index.min()
-    end_index = test_data.index.max()
-
-    # Predictions
-    pred = sautoarima_model.predict()
-    pred = sautoarima_model.predict(n_periods=len(test_data))
-    pred = pd.DataFrame(pred, index=test_data.index, columns=['Prediction'])
-
-    forecast = sautoarima_model.predict(n_periods=len(test_data))
-    forecast = pd.DataFrame(forecast, index=test_data.index, columns=['Prediction'])
-
-    # plot the predictions for validation set
-    plt.plot(data_set_3, label='Train')
-    # plt.plot(valid, label='Valid')
-    plt.plot(forecast, label='Prediction')
-    plt.show()
-    evaluate_forecast(data_set_3[start_index:end_index], forecast)
-    return sautoarima_model
-
-
-def evaluate_forecast(y,pred):
-    results = pd.DataFrame({'r2_score':r2_score(y, pred),
-                           }, index=[0])
-    results['mean_absolute_error'] = mean_absolute_error(y, pred)
-    results['median_absolute_error'] = median_absolute_error(y, pred)
-    results['mse'] = mean_squared_error(y, pred)
-    results['msle'] = mean_squared_log_error(y, pred)
-    results['mape'] = mean_absolute_percentage_error(y, pred)
-    results['rmse'] = np.sqrt(results['mse'])
-    return results
-
-
-def mean_absolute_percentage_error(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
-
-
 def predict(data_set_3):
     # split data into train and training set
-    # train_data, test_data = data_set_3[3:int(len(data_set_3) * 0.9)], data_set_3[int(len(data_set_3) * 0.9):]
-    train_data, test_data = data_set_3[:int(0.75 * (len(data_set_3)))], data_set_3[int(0.75 * (len(data_set_3))):]
-
+    train_data, test_data = data_set_3[3:int(len(data_set_3) * 0.8)], data_set_3[int(len(data_set_3) * 0.8):]
     plt.figure(figsize=(10, 6))
     plt.grid(True)
     plt.xlabel('Dates')
@@ -278,14 +280,13 @@ def predict(data_set_3):
     plt.plot(data_set_3, 'green', label='Train data')
     plt.plot(test_data, 'blue', label='Test data')
     plt.legend()
+    # Modeling
     # Build Model
-    model = ARIMA(train_data, order=(5, 1, 4))
+    model = ARIMA(train_data, order=(5, 1, 5))
     fitted = model.fit(disp=-1)
     print(fitted.summary())
-
     # Forecast
-    fc, se, conf = fitted.forecast(26, alpha=0.05)  # 95% conf
-
+    fc, se, conf = fitted.forecast(55, alpha=0.05)  # 95% conf
     # Make as pandas series
     fc_series = pd.Series(fc, index=test_data.index)
     lower_series = pd.Series(conf[:, 0], index=test_data.index)
@@ -313,16 +314,17 @@ def predict(data_set_3):
 
 
 data_set_1 = data_prep_death_cases(mongo_url)
-split_data_and_calc_mean_variance(data_set_1)
+# split_data_and_calc_mean_variance(data_set_1)
 data_set_2 = death_over_time_day_wise(data_set_1)
 data_set_3 = first_order_estimate_trend(data_set_2)
-calculate_moving_average_first_order(data_set_3)
-plot_acf_func_first_order(data_set_3)
-plot_pacf_func_first_order(data_set_3)
-dickey_fuller_test_log(data_set_3)
-plot_ts_decomposition(data_set_3)
-# grid_search_sarima(data_set_3)
-# arima_model = arimamodel(data_set_1)
-# arima_model.summary()
-sarimamodel(data_set_3)
 predict(data_set_3)
+# calculate_moving_average_first_order(data_set_3)
+# plot_acf_func_first_order(data_set_3)
+# plot_pacf_func_first_order(data_set_3)
+# dickey_fuller_test_log(data_set_3)
+# plot_ts_decomposition(data_set_3)
+# holtswinter(data_set_3)
+# seasonal_difference(data_set_3)
+#arimamodel1(data_set_3)
+
+# arima_model(data_set_3)
